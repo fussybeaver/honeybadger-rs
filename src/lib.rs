@@ -9,6 +9,7 @@ extern crate hostname;
 extern crate http;
 extern crate hyper;
 extern crate hyper_tls;
+#[macro_use] extern crate log;
 extern crate os_type;
 extern crate native_tls;
 #[macro_use]

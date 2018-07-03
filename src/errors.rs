@@ -23,12 +23,16 @@ error_chain! {
         NotProcessedError {
             description("The payload couldn't be processed")
         }
+        RedirectionError {
+            description("The endpoint replied with a redirect")
+        }
+        ServerError {
+            description("The honeybadger API replied with a '500 Internal Server Error'")
+        }
         TimeoutError(timeout: u64) {
             description("Honeybadger client timed out")
             display("Honeybadger timed out after {} seconds", timeout)
         }
-        RedirectionError
-        ServerError
         UnknownStatusCodeError(status_code: u16) {
             description("Honeybadger responded with an unknown status code")
             display("Honeybadger responded with an unknown status code: {}", status_code)

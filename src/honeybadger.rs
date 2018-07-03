@@ -9,7 +9,6 @@ use hyper::client::{Client, HttpConnector};
 use hyper::{Body, Request};
 use hyper::rt::Future;
 use hyper_tls::HttpsConnector;
-use http::request::Builder;
 use http::StatusCode;
 use http;
 use os_type;
@@ -33,6 +32,7 @@ const NOTIFIER_URL: &'static str = "https://github.com/fussybeaver/honeybader-rs
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
+#[derive(Debug)]
 pub struct Config {
     api_key: String,
     root: String,
@@ -56,7 +56,7 @@ pub struct ConfigBuilder {
 pub struct Honeybadger {
     client: Client<HttpsConnector<HttpConnector>>,
     config: Config,
-    request: Builder,
+    user_agent: String
 }
 
 impl ConfigBuilder {
@@ -102,25 +102,17 @@ impl Honeybadger {
 
         let builder = Client::builder();
 
-        let mut request = Request::builder();
         let os = os_type::current_platform();
         let user_agent: String = fmt::format(
             format_args!("HB-rust {:?}; {:?}/{:?}", 
                          VERSION, os.os_type, os.version));
-        let ua: &str = user_agent.as_ref();
-        let s: String = config.api_key.clone();
-        let a: &str = s.as_ref();
 
-        request.uri(config.endpoint.clone())
-            .method(http::Method::POST)
-            .header(http::header::ACCEPT, "application/json")
-            .header("X-API-Key", a)
-            .header(http::header::USER_AGENT, ua);
+        debug!("Constructed honeybadger instance with configuration: {:?}", config);
 
         Ok(Honeybadger {
             config: config,
             client: builder.build(https),
-            request: request,
+            user_agent: user_agent
         })
     }
 
@@ -162,32 +154,57 @@ impl Honeybadger {
         serde_json::to_vec(&notice)
     }
     
-    pub fn marshall<'req, E>(&mut self, 
+    pub fn create_payload<'req, E>(&mut self, 
                              error: &E,
                              context: Option<HashMap<&'req str, &'req str>>) 
         -> Result<Request<Body>>
         where E: ChainedError {
+
+            let mut request = Request::builder();
+
+            let api_key: &str = self.config.api_key.as_ref();
+            let user_agent: &str = self.user_agent.as_ref();
+
+            request.uri(self.config.endpoint.clone())
+                .method(http::Method::POST)
+                .header(http::header::ACCEPT, "application/json")
+                .header("X-API-Key", api_key)
+                .header(http::header::USER_AGENT, user_agent);
+
             let data = self.serialize(error, context)?;
-            let r = self.request.body(Body::from(data))?;
+
+            debug!("Serialized Honeybadger notify payload: {}", error);
+
+            let r = request.body(Body::from(data))?;
             Ok(r)
         }
 
-    fn error(kind: ErrorKind) -> Error {
+    fn convert_error(kind: ErrorKind) -> Error {
         let e: Result<()> = Err(kind.into());
         e.err().unwrap()
     }
 
     pub fn notify<'req>(&mut self, 
-                        request: Request<Body>) 
-        -> impl Future<Item=(), Error=Error> {
+                        request: Request<Body>) -> impl Future<Item=(), Error=Error> {
+
         let now = ::std::time::Instant::now();
         let t = self.config.timeout.as_secs();
+
+        debug!("Sending honebadger payload with user agent: {}", self.user_agent);
+
         self.client.request(request)
-            .map_err(move |e| Honeybadger::error(ErrorKind::Hyper(e)))
+            .map_err(move |e| {
+                error!("Honeybadger client error: {}", e);
+                Honeybadger::convert_error(ErrorKind::Hyper(e))
+            })
             .deadline(now + self.config.timeout)
-            .map_err(move |_| Honeybadger::error(ErrorKind::TimeoutError(t)))
+            .map_err(move |e| {
+                error!("Honeybadger request timed-out!: {}", e);
+                Honeybadger::convert_error(ErrorKind::TimeoutError(t))
+            })
             .and_then(|response| {
                 let (parts, _) = response.into_parts();
+                debug!("Honeybadger API returned status: {}", parts.status);
                 match parts.status {
                     s if s.is_success() => Ok(()),
                     s if s.is_redirection() => Err(ErrorKind::RedirectionError.into()),
@@ -200,6 +217,6 @@ impl Honeybadger {
                     }
                 }
             })
-        }
+    }
 
 }
