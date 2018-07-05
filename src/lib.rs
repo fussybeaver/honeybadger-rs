@@ -17,6 +17,8 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate serde;
 extern crate tokio;
+#[cfg(test)]
+extern crate yup_hyper_mock as hyper_mock;
 
 mod honeybadger;
 pub mod errors;
