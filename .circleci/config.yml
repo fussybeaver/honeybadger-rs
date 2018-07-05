@@ -1,0 +1,15 @@
+version: 2
+
+jobs:
+  test:
+    docker:
+      - image: ekidd/rust-musl-builder
+    steps:
+      - checkout
+      - run: cargo update
+      - run: cargo test
+workflows:
+  version: 2
+  test-build-image:
+    jobs:
+      - test

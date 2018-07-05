@@ -19,3 +19,7 @@ tokio = "0.1.7"
 native-tls = "0.2.0"
 futures = "0.1.21"
 log = "0.4"
+
+[dev-dependencies]
+yup-hyper-mock = "*"
+log = "*"
