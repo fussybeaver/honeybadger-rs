@@ -161,32 +161,32 @@ impl Honeybadger {
         -> Result<Request<Body>>
         where E: ChainedError {
 
-            let mut request = Request::builder();
+        let mut request = Request::builder();
 
-            let api_key: &str = config.api_key.as_ref();
-            let user_agent: &str = user_agent.as_ref();
+        let api_key: &str = config.api_key.as_ref();
+        let user_agent: &str = user_agent.as_ref();
 
-            request.uri(config.endpoint.clone())
-                .method(http::Method::POST)
-                .header(http::header::ACCEPT, "application/json")
-                .header("X-API-Key", api_key)
-                .header(http::header::USER_AGENT, user_agent);
+        request.uri(config.endpoint.clone())
+            .method(http::Method::POST)
+            .header(http::header::ACCEPT, "application/json")
+            .header("X-API-Key", api_key)
+            .header(http::header::USER_AGENT, user_agent);
 
-            let data = Honeybadger::serialize(config, error, context)?;
+        let data = Honeybadger::serialize(config, error, context)?;
 
-            debug!("Serialized Honeybadger notify payload: {}", error);
+        debug!("Serialized Honeybadger notify payload: {}", error);
 
-            let r = request.body(Body::from(data))?;
-            Ok(r)
-        }
+        let r = request.body(Body::from(data))?;
+        Ok(r)
+    }
     
     pub fn create_payload<'req, E>(&mut self, 
-                             error: &E,
-                             context: Option<HashMap<&'req str, &'req str>>) 
+                                   error: &E,
+                                   context: Option<HashMap<&'req str, &'req str>>) 
         -> Result<Request<Body>>
         where E: ChainedError {
-            Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
-        }
+        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
+    }
 
     fn convert_error(kind: ErrorKind) -> Error {
         let e: Result<()> = Err(kind.into());
@@ -299,7 +299,7 @@ mod tests {
 
         match res {
             Err(Error(ErrorKind::RateExceededError, _)) => assert!(true),
-            _ => assert_eq!("", "expected timeout error, but was not")
+            _ => assert_eq!("", "expected rate exceeded error, but was not")
         }
     }
 }
