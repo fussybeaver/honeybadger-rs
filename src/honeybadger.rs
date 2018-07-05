@@ -278,14 +278,6 @@ impl Honeybadger {
         Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
     }
 
-    pub fn create_payload<'req, E>(&mut self,
-                             error: &E,
-                             context: Option<HashMap<&'req str, &'req str>>)
-        -> Result<Request<Body>>
-        where E: ChainedError {
-            Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
-        }
-
     fn convert_error(kind: ErrorKind) -> Error {
         let e: Result<()> = Err(kind.into());
         e.err().unwrap()
