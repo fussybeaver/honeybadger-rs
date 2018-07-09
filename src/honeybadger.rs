@@ -64,7 +64,7 @@ pub struct Honeybadger {
 
 impl ConfigBuilder {
 
-    /// Construct a `ConfigBuilder` to parametrize the Honeybadger client.
+    /// Construct a `ConfigBuilder` to parametrize the Honeybadger client. 
     ///
     /// `ConfigBuilder` is populated using environment variables, which will inject
     /// Honeybadger event fields:
@@ -150,7 +150,7 @@ impl Honeybadger {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
     /// # let api_token = "ffffff";
     /// let config = ConfigBuilder::new(api_token).build();
-    ///
+    /// 
     /// assert_eq!(true, Honeybadger::new(config).is_ok());
     /// ```
     pub fn new(config: Config) -> Result<Self> {
@@ -236,7 +236,7 @@ impl Honeybadger {
         let r = request.body(Body::from(data))?;
         Ok(r)
     }
-
+    
     /// Prepare a payload for the notify request.
     ///
     /// Requires the use of the [error_chain][1] crate.
@@ -244,7 +244,7 @@ impl Honeybadger {
     /// # Arguments
     ///
     /// * `error`   - `ChainedError` compatible with an [error_chain][1] crate
-    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API
+    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API 
     ///
     /// # Example
     ///
@@ -262,7 +262,7 @@ impl Honeybadger {
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
-    ///
+    /// 
     /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
     /// honeybadger.create_payload(&error.unwrap_err(), None);
     /// # }
@@ -270,7 +270,7 @@ impl Honeybadger {
     ///
     /// [1]: https://rust-lang-nursery.github.io/error-chain/error_chain/index.html
     /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
-    pub fn create_payload<'req, E>(&mut self,
+    pub fn create_payload<'req, E>(&mut self, 
                                    error: &E,
                                    context: Option<HashMap<&'req str, &'req str>>)
         -> Result<Request<Body>>
@@ -325,7 +325,7 @@ impl Honeybadger {
     /// [1]: https://github.com/tokio-rs/tokio
     /// [2]: https://docs.rs/futures/0.2.1/futures/future/index.html
     /// [3]: https://docs.rs/hyper/0.12.5/hyper/struct.Request.html
-    pub fn notify<'req>(&mut self,
+    pub fn notify<'req>(&mut self, 
                         request: Request<Body>) -> impl Future<Item=(), Error=Error> {
 
         Honeybadger::notify_with_client(&self.client, &self.config, &self.user_agent, request)
