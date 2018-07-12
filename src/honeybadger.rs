@@ -32,6 +32,7 @@ const NOTIFIER_URL: &'static str = "https://github.com/fussybeaver/honeybader-rs
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
+/// Config instance containing user-defined configuration for this crate.
 #[derive(Debug)]
 pub struct Config {
     api_key: String,
@@ -43,6 +44,7 @@ pub struct Config {
     threads: usize
 }
 
+/// Configuration builder struct, used for building a `Config` instance
 pub struct ConfigBuilder {
     api_key: String,
     root: Option<String>,
@@ -53,6 +55,7 @@ pub struct ConfigBuilder {
     threads: Option<usize>
 }
 
+/// Instance containing the client connection and user configuration for this crate.
 pub struct Honeybadger {
     client: Client<HttpsConnector<HttpConnector>>,
     config: Config,
@@ -60,6 +63,28 @@ pub struct Honeybadger {
 }
 
 impl ConfigBuilder {
+
+    /// Construct a `ConfigBuilder` to parametrize the Honeybadger client. 
+    ///
+    /// `ConfigBuilder` is populated using environment variables, which will inject
+    /// Honeybadger event fields:
+    ///   - `HONEYBADGER_ROOT` - project root for each event.
+    ///   - `ENV` - environment name for each event.
+    ///   - `HOSTNAME` - host name for each event.
+    ///   - `HONEYBADGER_ENDPOINT` - override the default endpoint for the HTTPS client.
+    ///   - `HONEYBADGER_TIMEOUT` - write timeout for the Honeybadger HTTPS client.
+    ///
+    /// # Arguments
+    ///
+    /// * `api_token` - API key for the honeybadger project
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token);
+    /// ```
     pub fn new(api_token: &str) -> Self {
         Self {
             api_key: api_token.to_owned(),
@@ -74,6 +99,23 @@ impl ConfigBuilder {
 
     // TODO pub fn with.. builders
 
+    /// Prepare a `Config` instance for constructing a Honeybadger instance.
+    ///
+    /// Defaults are set if the `ConfigBuilder` used to construct the `Config` is empty.
+    ///
+    ///   - _default root_: the current directory
+    ///   - _default hostname_: the host name as reported by the operating system
+    ///   - _default endpoint_: "https://api.honeybadger.io/v1/notices"
+    ///   - _default timeout_: a 5 second client write timeout
+    ///   - _default threads_: 4 threads are used in the asynchronous runtime pool
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// # let api_token = "ffffff";
+    /// ConfigBuilder::new(api_token).build();
+    /// ```
     pub fn build(self) -> Config {
         Config {
             api_key: self.api_key,
@@ -96,6 +138,21 @@ impl ConfigBuilder {
 
 impl Honeybadger {
 
+    /// Constructs a Honeybadger instance, which may be used to send API notify requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - `Config` instance, which is built using the `ConfigBuilder`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).build();
+    /// 
+    /// assert_eq!(true, Honeybadger::new(config).is_ok());
+    /// ```
     pub fn new(config: Config) -> Result<Self> {
 
         let https = HttpsConnector::new(config.threads)?;
@@ -180,6 +237,39 @@ impl Honeybadger {
         Ok(r)
     }
     
+    /// Prepare a payload for the notify request.
+    ///
+    /// Requires the use of the [error_chain][1] crate.
+    ///
+    /// # Arguments
+    ///
+    /// * `error`   - `ChainedError` compatible with an [error_chain][1] crate
+    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API 
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # #[macro_use] extern crate error_chain;
+    /// # extern crate honeybadger;
+    /// error_chain! {
+    ///   errors {
+    ///     MyCustomError
+    ///   }
+    /// }
+    /// #
+    /// # fn main() {
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # let api_token = "ffffff";
+    /// # let config = ConfigBuilder::new(api_token).build();
+    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
+    /// 
+    /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
+    /// honeybadger.create_payload(&error.unwrap_err(), None);
+    /// # }
+    /// ```
+    ///
+    /// [1]: https://rust-lang-nursery.github.io/error-chain/error_chain/index.html
+    /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
     pub fn create_payload<'req, E>(&mut self, 
                                    error: &E,
                                    context: Option<HashMap<&'req str, &'req str>>) 
@@ -193,6 +283,48 @@ impl Honeybadger {
         e.err().unwrap()
     }
 
+    /// Trigger the notify request using an async HTTPS request.
+    ///
+    /// Requires an initialized [Tokio][1] `Runtime`, and returns a [Future][2] that must be
+    /// resolved using the Tokio framework orchestration methods.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - [Request][3] instance constructed with `create_payload`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # #[macro_use] extern crate error_chain;
+    /// # extern crate honeybadger;
+    /// # extern crate tokio;
+    /// # error_chain! {
+    /// #   errors {
+    /// #     MyCustomError
+    /// #   }
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # use tokio::runtime::current_thread;
+    /// # let api_token = "ffffff";
+    /// # let config = ConfigBuilder::new(api_token).build();
+    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
+    /// #
+    /// # let error : Result<()> = Err(ErrorKind::MyCustomError.into());
+    /// #
+    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let payload = honeybadger.create_payload(&error.unwrap_err(), None).unwrap();
+    /// let future = honeybadger.notify(payload);
+    ///
+    /// // note: blocks the current thread!
+    /// rt.block_on(future);
+    /// #
+    /// # }
+    /// ```
+    /// [1]: https://github.com/tokio-rs/tokio
+    /// [2]: https://docs.rs/futures/0.2.1/futures/future/index.html
+    /// [3]: https://docs.rs/hyper/0.12.5/hyper/struct.Request.html
     pub fn notify<'req>(&mut self, 
                         request: Request<Body>) -> impl Future<Item=(), Error=Error> {
 
