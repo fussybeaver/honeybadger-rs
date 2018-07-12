@@ -2,6 +2,8 @@
 name = "honeybadger"
 version = "0.1.0"
 authors = ["Niel Drummond <niel@drummond.lu>"]
+description = "A Honeybadger client for rust"
+license = "MIT"
 
 [dependencies]
 error-chain = "0.12.0"
