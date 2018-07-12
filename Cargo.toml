@@ -23,5 +23,4 @@ futures = "0.1.21"
 log = "0.4"
 
 [dev-dependencies]
-yup-hyper-mock = "*"
-log = "*"
+yup-hyper-mock = "3.12"
