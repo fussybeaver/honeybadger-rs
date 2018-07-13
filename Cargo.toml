@@ -1,9 +1,11 @@
 [package]
 name = "honeybadger"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Niel Drummond <niel@drummond.lu>"]
 description = "A Honeybadger client for rust"
 license = "MIT"
+readme = "README.md"
+categories = ["api-bindings", "web-programming::http-client"]
 
 [dependencies]
 error-chain = "0.12.0"
@@ -24,3 +26,6 @@ log = "0.4"
 
 [dev-dependencies]
 yup-hyper-mock = "3.12"
+
+[badges]
+circle-ci = { repository = "fussybeaver/honeybadger-rs" }
