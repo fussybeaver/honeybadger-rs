@@ -104,7 +104,7 @@ impl Honeybadger {
 
         let os = os_type::current_platform();
         let user_agent: String = fmt::format(
-            format_args!("HB-rust {:?}; {:?}/{:?}", 
+            format_args!("HB-rust {}; {:?}/{}", 
                          VERSION, os.os_type, os.version));
 
         debug!("Constructed honeybadger instance with configuration: {:?}", config);
@@ -190,7 +190,7 @@ impl Honeybadger {
         let now = ::std::time::Instant::now();
         let t = self.config.timeout.as_secs();
 
-        debug!("Sending honebadger payload with user agent: {}", self.user_agent);
+        debug!("Sending honeybadger payload with user agent: {}", self.user_agent);
 
         self.client.request(request)
             .map_err(move |e| {
