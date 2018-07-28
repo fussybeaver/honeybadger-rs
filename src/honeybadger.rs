@@ -161,7 +161,7 @@ impl Honeybadger {
 
         let os = os_type::current_platform();
         let user_agent: String = fmt::format(
-            format_args!("HB-rust {:?}; {:?}/{:?}", 
+            format_args!("HB-rust {}; {:?}/{}",
                          VERSION, os.os_type, os.version));
 
         debug!("Constructed honeybadger instance with configuration: {:?}", config);
@@ -174,11 +174,11 @@ impl Honeybadger {
     }
 
     fn serialize<'req, E>(config: &Config,
-                          error: &E, 
-                          context: Option<HashMap<&'req str, &'req str>>) 
-        -> serde_json::Result<Vec<u8>> 
+                          error: &E,
+                          context: Option<HashMap<&'req str, &'req str>>)
+        -> serde_json::Result<Vec<u8>>
         where E: ChainedError {
-            
+
         let notifier = Notifier {
             name: NOTIFIER_NAME,
             url: NOTIFIER_URL,
@@ -214,7 +214,7 @@ impl Honeybadger {
     fn create_payload_with_config<'req, E>(config: &Config,
                                            user_agent: &str,
                                            error: &E,
-                                           context: Option<HashMap<&'req str, &'req str>>) 
+                                           context: Option<HashMap<&'req str, &'req str>>)
         -> Result<Request<Body>>
         where E: ChainedError {
 
@@ -272,7 +272,7 @@ impl Honeybadger {
     /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
     pub fn create_payload<'req, E>(&mut self, 
                                    error: &E,
-                                   context: Option<HashMap<&'req str, &'req str>>) 
+                                   context: Option<HashMap<&'req str, &'req str>>)
         -> Result<Request<Body>>
         where E: ChainedError {
         Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
@@ -342,7 +342,7 @@ impl Honeybadger {
         let now = ::std::time::Instant::now();
         let t = config.timeout.as_secs();
 
-        debug!("Sending honebadger payload with user agent: {}", user_agent);
+        debug!("Sending honeybadger payload with user agent: {}", user_agent);
 
         client.request(request)
             .map_err(move |e| {
@@ -416,7 +416,7 @@ mod tests {
 
         match res {
             Err(Error(ErrorKind::TimeoutError(5), _)) => assert!(true),
-            _ => 
+            _ =>
                 assert_eq!("", "expected timeout error, but was not")
         }
     }
