@@ -97,37 +97,121 @@ impl ConfigBuilder {
         }
     }
 
+    /// Override the project root property for events posted to the Honeybadger API. Consumes the
+    /// `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `project_root` - The directory where your code lives.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_root("/tmp/my_project_root");
+    /// ```
     pub fn with_root(mut self, project_root: &str) -> Self {
         self.root = Some(project_root.to_owned());
         self
     }
 
+    /// Add an environment name property for events posted to the Honeybadger API, which will then
+    /// be categorized accordingly in the UI. Consumes the `ConfigBuilder` and returns a new
+    /// value.
+    ///
+    /// # Arguments
+    ///
+    /// * `environment` - The directory where your code lives.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_env("production");
+    /// ```
     pub fn with_env(mut self, environment: &str) -> Self {
         self.env = Some(environment.to_owned());
         self
     }
 
+    /// Override the hostname property for events posted to the Honeybadger API. Consumes the
+    /// `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - The server's hostname
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_hostname("localhost");
+    /// ```
     pub fn with_hostname(mut self, hostname: &str) -> Self {
         self.hostname = Some(hostname.to_owned());
         self
     }
 
+    /// Override the Honeybadger endpoint used to post HTTP payloads. Consumes the `ConfigBuilder`
+    /// and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - A custom honeybadger endpoint to query
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_endpoint("http://proxy.example.com:5050/");
+    /// ```
     pub fn with_endpoint(mut self, endpoint: &str) -> Self {
         self.endpoint = Some(endpoint.to_owned());
         self
     }
 
+    /// Override the HTTP write timeout for the client used to post events to Honeybadger.
+    /// Consumes the `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - A `Duration` reference specifying the HTTP timeout for the write request
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// # use std::time::Duration;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_timeout(&Duration::new(20, 0));
+    /// ```
     pub fn with_timeout(mut self, timeout: &Duration) -> Self {
         self.timeout = Some(timeout.to_owned());
         self
     }
 
+    /// Override the number of threads the async HTTP connection should use to queue Honeybadger
+    /// payloads.  Consumes the `ConfigBuilder` and returns a new reference.
+    ///
+    /// # Arguments
+    ///
+    /// * `threads` - The number of threads to configure the hyper connector
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_threads(8);
+    /// ```
     pub fn with_threads(mut self, threads: usize) -> Self {
         self.threads = Some(threads);
         self
     }
-
-    // TODO pub fn with.. builders
 
     /// Prepare a `Config` instance for constructing a Honeybadger instance.
     ///
@@ -135,7 +219,7 @@ impl ConfigBuilder {
     ///
     ///   - _default root_: the current directory
     ///   - _default hostname_: the host name as reported by the operating system
-    ///   - _default endpoint_: "https://api.honeybadger.io/v1/notices"
+    ///   - _default endpoint_: `https://api.honeybadger.io/v1/notices`
     ///   - _default timeout_: a 5 second client write timeout
     ///   - _default threads_: 4 threads are used in the asynchronous runtime pool
     ///
