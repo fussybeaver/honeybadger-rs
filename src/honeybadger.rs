@@ -64,7 +64,7 @@ pub struct Honeybadger {
 
 impl ConfigBuilder {
 
-    /// Construct a `ConfigBuilder` to parametrize the Honeybadger client. 
+    /// Construct a `ConfigBuilder` to parametrize the Honeybadger client.
     ///
     /// `ConfigBuilder` is populated using environment variables, which will inject
     /// Honeybadger event fields:
@@ -97,7 +97,121 @@ impl ConfigBuilder {
         }
     }
 
-    // TODO pub fn with.. builders
+    /// Override the project root property for events posted to the Honeybadger API. Consumes the
+    /// `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `project_root` - The directory where your code lives.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_root("/tmp/my_project_root");
+    /// ```
+    pub fn with_root(mut self, project_root: &str) -> Self {
+        self.root = Some(project_root.to_owned());
+        self
+    }
+
+    /// Add an environment name property for events posted to the Honeybadger API, which will then
+    /// be categorized accordingly in the UI. Consumes the `ConfigBuilder` and returns a new
+    /// value.
+    ///
+    /// # Arguments
+    ///
+    /// * `environment` - The directory where your code lives.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_env("production");
+    /// ```
+    pub fn with_env(mut self, environment: &str) -> Self {
+        self.env = Some(environment.to_owned());
+        self
+    }
+
+    /// Override the hostname property for events posted to the Honeybadger API. Consumes the
+    /// `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `hostname` - The server's hostname
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_hostname("localhost");
+    /// ```
+    pub fn with_hostname(mut self, hostname: &str) -> Self {
+        self.hostname = Some(hostname.to_owned());
+        self
+    }
+
+    /// Override the Honeybadger endpoint used to post HTTP payloads. Consumes the `ConfigBuilder`
+    /// and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - A custom honeybadger endpoint to query
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_endpoint("http://proxy.example.com:5050/");
+    /// ```
+    pub fn with_endpoint(mut self, endpoint: &str) -> Self {
+        self.endpoint = Some(endpoint.to_owned());
+        self
+    }
+
+    /// Override the HTTP write timeout for the client used to post events to Honeybadger.
+    /// Consumes the `ConfigBuilder` and returns a new value.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - A `Duration` reference specifying the HTTP timeout for the write request
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// # use std::time::Duration;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_timeout(&Duration::new(20, 0));
+    /// ```
+    pub fn with_timeout(mut self, timeout: &Duration) -> Self {
+        self.timeout = Some(timeout.to_owned());
+        self
+    }
+
+    /// Override the number of threads the async HTTP connection should use to queue Honeybadger
+    /// payloads.  Consumes the `ConfigBuilder` and returns a new reference.
+    ///
+    /// # Arguments
+    ///
+    /// * `threads` - The number of threads to configure the hyper connector
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use honeybadger::ConfigBuilder;
+    /// let api_token = "ffffff";
+    /// let config = ConfigBuilder::new(api_token).with_threads(8);
+    /// ```
+    pub fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = Some(threads);
+        self
+    }
 
     /// Prepare a `Config` instance for constructing a Honeybadger instance.
     ///
@@ -105,7 +219,7 @@ impl ConfigBuilder {
     ///
     ///   - _default root_: the current directory
     ///   - _default hostname_: the host name as reported by the operating system
-    ///   - _default endpoint_: "https://api.honeybadger.io/v1/notices"
+    ///   - _default endpoint_: `https://api.honeybadger.io/v1/notices`
     ///   - _default timeout_: a 5 second client write timeout
     ///   - _default threads_: 4 threads are used in the asynchronous runtime pool
     ///
@@ -150,7 +264,7 @@ impl Honeybadger {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
     /// # let api_token = "ffffff";
     /// let config = ConfigBuilder::new(api_token).build();
-    /// 
+    ///
     /// assert_eq!(true, Honeybadger::new(config).is_ok());
     /// ```
     pub fn new(config: Config) -> Result<Self> {
@@ -236,7 +350,7 @@ impl Honeybadger {
         let r = request.body(Body::from(data))?;
         Ok(r)
     }
-    
+
     /// Prepare a payload for the notify request.
     ///
     /// Requires the use of the [error_chain][1] crate.
@@ -244,7 +358,7 @@ impl Honeybadger {
     /// # Arguments
     ///
     /// * `error`   - `ChainedError` compatible with an [error_chain][1] crate
-    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API 
+    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API
     ///
     /// # Example
     ///
@@ -262,7 +376,7 @@ impl Honeybadger {
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
-    /// 
+    ///
     /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
     /// honeybadger.create_payload(&error.unwrap_err(), None);
     /// # }
@@ -270,7 +384,7 @@ impl Honeybadger {
     ///
     /// [1]: https://rust-lang-nursery.github.io/error-chain/error_chain/index.html
     /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
-    pub fn create_payload<'req, E>(&mut self, 
+    pub fn create_payload<'req, E>(&mut self,
                                    error: &E,
                                    context: Option<HashMap<&'req str, &'req str>>)
         -> Result<Request<Body>>
@@ -325,7 +439,7 @@ impl Honeybadger {
     /// [1]: https://github.com/tokio-rs/tokio
     /// [2]: https://docs.rs/futures/0.2.1/futures/future/index.html
     /// [3]: https://docs.rs/hyper/0.12.5/hyper/struct.Request.html
-    pub fn notify<'req>(&mut self, 
+    pub fn notify<'req>(&mut self,
                         request: Request<Body>) -> impl Future<Item=(), Error=Error> {
 
         Honeybadger::notify_with_client(&self.client, &self.config, &self.user_agent, request)
@@ -375,12 +489,12 @@ impl Honeybadger {
 #[cfg(test)]
 mod tests {
 
-    use honeybadger::{ConfigBuilder, Config, Honeybadger};
+    use honeybadger::*;
     use hyper::Body;
     use hyper::client::Client;
     use hyper_mock::SequentialConnector;
+    use std::time::Duration;
     use tokio::runtime::current_thread;
-    use errors::*;
 
     fn test_client_with_response(res: String, config: &Config) -> Result<()> {
         let mut c = SequentialConnector::default();
@@ -434,5 +548,76 @@ mod tests {
             _ => assert_eq!("", "expected rate exceeded error, but was not")
         }
     }
-}
 
+    #[test]
+    fn test_with_root() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_ne!("/tmp/build", config.root);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_root("/tmp/build").build();
+
+        assert_eq!("/tmp/build", config.root);
+    }
+
+    #[test]
+    fn test_with_env() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_eq!("", config.env);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_env("test").build();
+
+        assert_eq!("test", config.env);
+    }
+
+    #[test]
+    fn test_with_hostname() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_ne!("hickyblue", config.hostname);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_hostname("hickyblue").build();
+
+        assert_eq!("hickyblue", config.hostname);
+    }
+
+    #[test]
+    fn test_with_endpoint() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_eq!(HONEYBADGER_ENDPOINT, config.endpoint);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_endpoint("http://example.com/").build();
+
+        assert_eq!("http://example.com/", config.endpoint);
+    }
+
+    #[test]
+    fn test_with_timeout() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_eq!(Duration::new(HONEYBADGER_DEFAULT_TIMEOUT, 0), config.timeout);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_timeout(&Duration::new(20, 0)).build();
+
+        assert_eq!(Duration::new(20, 0), config.timeout);
+    }
+
+    #[test]
+    fn test_with_threads() {
+        let config = ConfigBuilder::new("dummy-api-key").build();
+
+        assert_eq!(HONEYBADGER_DEFAULT_THREADS, config.threads);
+
+        let config = ConfigBuilder::new("dummy-api-key")
+            .with_threads(128).build();
+
+        assert_eq!(128, config.threads);
+    }
+}

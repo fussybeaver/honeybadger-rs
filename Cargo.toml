@@ -1,6 +1,6 @@
 [package]
 name = "honeybadger"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Niel Drummond <niel@drummond.lu>"]
 description = "A Honeybadger client for rust"
 license = "MIT"
