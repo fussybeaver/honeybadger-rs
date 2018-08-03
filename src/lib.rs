@@ -2,12 +2,15 @@
 //!
 //! # Description
 //!
-//! [Honeybadger](https://www.honeybadger.io/) is a service that receives, stores and alerts on
+//! [Honeybadger][1] is a service that receives, stores and alerts on
 //! application errors and outages.  This library is a community-provided client for the [Honeybadger Exceptions API](https://docs.honeybadger.io/api/exceptions.html).
 //! 
 //! Underneath, the client uses a [Tokio](https://tokio.rs/)-based version of
 //! [Hyper](https://hyper.rs/), and leverages
-//! [ErrorChain](https://docs.rs/error-chain/0.12.0/error_chain/) to support backtraces.
+//! [ErrorChain](https://docs.rs/error-chain/0.12.0/error_chain/) to support backtraces. Basic
+//! support for the [Failure](https://github.com/rust-lang-nursery/failure) Error struct exists
+//! through a `From` trait, and hence the possibility for further compatibility with other custom
+//! Error implementations.
 //!
 //! # Example
 //!
@@ -48,7 +51,7 @@
 //! run(work);
 //! # }
 //! ```
-//!
+//![1]: https://www.honeybadger.io/
 //
 // Increase the compiler's recursion limit for the `error_chain` crate.
 #![recursion_limit = "1024"]
@@ -56,6 +59,7 @@
 extern crate backtrace;
 #[macro_use]
 extern crate error_chain;
+extern crate failure;
 extern crate futures;
 extern crate hostname;
 extern crate http;
