@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::From;
 use std::env;
 use std::fmt;
 use std::iter::FromIterator;
@@ -287,11 +288,10 @@ impl Honeybadger {
         })
     }
 
-    fn serialize<'req, E>(config: &Config,
-                          error: &E,
+    fn serialize<'req>(config: &Config,
+                          error: notice::Error,
                           context: Option<HashMap<&'req str, &'req str>>)
-        -> serde_json::Result<Vec<u8>>
-        where E: ChainedError {
+        -> serde_json::Result<Vec<u8>> {
 
         let notifier = Notifier {
             name: NOTIFIER_NAME,
@@ -299,7 +299,6 @@ impl Honeybadger {
             version: VERSION
         };
 
-        let error = notice::Error::new(error);
         let request = notice::Request {
             context: context,
             cgi_data: HashMap::<String, String>::from_iter(env::vars())
@@ -325,12 +324,11 @@ impl Honeybadger {
         serde_json::to_vec(&notice)
     }
 
-    fn create_payload_with_config<'req, E>(config: &Config,
-                                           user_agent: &str,
-                                           error: &E,
-                                           context: Option<HashMap<&'req str, &'req str>>)
-        -> Result<Request<Body>>
-        where E: ChainedError {
+    fn create_payload_with_config<'req>(config: &Config,
+                                        user_agent: &str,
+                                        error: notice::Error,
+                                        context: Option<HashMap<&'req str, &'req str>>)
+        -> Result<Request<Body>> {
 
         let mut request = Request::builder();
 
@@ -345,8 +343,6 @@ impl Honeybadger {
 
         let data = Honeybadger::serialize(config, error, context)?;
 
-        debug!("Serialized Honeybadger notify payload: {}", error);
-
         let r = request.body(Body::from(data))?;
         Ok(r)
     }
@@ -355,10 +351,15 @@ impl Honeybadger {
     ///
     /// Requires the use of the [error_chain][1] crate.
     ///
+    /// *Use the [`into_payload` method][3] for __generic__
+    /// error types*.
+    ///
+    /// ---
+    ///
     /// # Arguments
     ///
-    /// * `error`   - `ChainedError` compatible with an [error_chain][1] crate
-    /// * `context` - Optional `HashMap` to pass to the [Honeybadger context][2] API
+    /// * `error`   - [`ChainedError`][4] reference compatible with an [error_chain][1] crate
+    /// * `context` - Optional [`HashMap`][5] to pass to the [Honeybadger context][2] API
     ///
     /// # Example
     ///
@@ -382,14 +383,77 @@ impl Honeybadger {
     /// # }
     /// ```
     ///
+    /// ---
+    ///
     /// [1]: https://rust-lang-nursery.github.io/error-chain/error_chain/index.html
     /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
+    /// [3]: #method.into_payload
+    /// [4]: https://docs.rs/error-chain/0.12.0/error_chain/trait.ChainedError.html
+    /// [5]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
     pub fn create_payload<'req, E>(&mut self,
                                    error: &E,
                                    context: Option<HashMap<&'req str, &'req str>>)
         -> Result<Request<Body>>
         where E: ChainedError {
-        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error, context)
+        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, notice::Error::new(error), context)
+    }
+
+    /// Generic method to prepare a payload for the notify request. 
+    ///
+    /// Useful alternative if `error_chain` crate is not being used for the error being sent to
+    /// Honeybadger. Requires a [`From`][1] implementation for a [`notice::Error`][5]. 
+    ///
+    /// This module provides an implementation for the [`failure::Error`][6] type, so `into_payload` is 
+    /// useable out-of-the-box for non-custom types from the `failure` crate.
+    ///
+    /// ---
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - a concrete value that implements the [`From`][1] trait for a
+    /// [`notice::Error`][5].
+    /// * `context` - Optional [`HashMap`][7] to pass to the [Honeybadger context][2] API
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # extern crate failure;
+    /// # extern crate honeybadger;
+    /// fn parse_number(num: &str) -> Result<i32, failure::Error> {
+    ///   let r = num.parse::<i32>()?;
+    ///   Ok(r)
+    /// }
+    /// # fn main() {
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # let api_token = "ffffff";
+    /// # let config = ConfigBuilder::new(api_token).build();
+    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
+    ///
+    /// honeybadger.into_payload(parse_number("foobar").unwrap_err(), None);
+    /// # }
+    /// ```
+    ///
+    /// # Implementing the Fail trait
+    ///
+    /// If you are [deriving `Fail`][3] or have a custom struct that implements `Fail`, in order to
+    /// enable this API, implement the [`From`][1] trait for the particular struct to convert it to a
+    /// [`notice::Error`][5] for use as a honeybadger payload.
+    ///
+    /// ---
+    ///
+    /// [1]: https://doc.rust-lang.org/std/convert/trait.From.html
+    /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
+    /// [3]: https://github.com/rust-lang-nursery/failure/blob/master/book/src/derive-fail.md
+    /// [4]: notice/struct.Error.html#implementations
+    /// [5]: notice/struct.Error.html
+    /// [6]: https://github.com/rust-lang-nursery/failure/blob/master/book/src/error.md
+    /// [7]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
+    pub fn into_payload<'req, E: Into<::notice::Error>>(&mut self,
+                                                        error: E,
+                                                        context: Option<HashMap<&'req str, &'req str>>)
+        -> Result<Request<Body>> 
+        where ::notice::Error: From<E> {
+        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error.into(), context)
     }
 
     fn convert_error(kind: ErrorKind) -> Error {
@@ -506,7 +570,8 @@ mod tests {
         let mut rt = current_thread::Runtime::new().unwrap();
 
         let error : Result<()> = Err(ErrorKind::RedirectionError.into());
-        let req = Honeybadger::create_payload_with_config(config, "test-client", &error.unwrap_err(), None).unwrap();
+        let error = notice::Error::new(&error.unwrap_err());
+        let req = Honeybadger::create_payload_with_config(config, "test-client", error, None).unwrap();
         let res = Honeybadger::notify_with_client(&client, config, "test-client", req);
 
         rt.block_on(res)

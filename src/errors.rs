@@ -1,3 +1,4 @@
+//! Errors used by this package and chained from upstream libraries
 use http;
 use hyper;
 use hyper_tls;

@@ -1,31 +1,56 @@
-use std::collections::HashMap;
-
+//! Data structures for marshaling to honeybadger's API
 use error_chain::ChainedError;
+use failure;
+
+use std::collections::HashMap;
+use std::convert::From;
 
 /// Serializable root notice event, for use with the notify endpoint of the Honeybadger API.
 #[derive(Serialize)]
 pub struct Notice<'req> {
     pub api_key: &'req str,
     pub notifier: Notifier,
-    pub error: Error<'req>,
+    pub error: Error,
     pub request: Request<'req>,
     pub server: Server<'req>
 }
 
 /// Serializable leaf node representing the error to notify on.
 #[derive(Serialize)]
-pub struct Error<'req> {
-    class: &'req str,
-    message: Option<String>,
-    causes: Option<Vec<Error<'req>>>
+pub struct Error {
+    pub class: String,
+    pub message: Option<String>,
+    pub causes: Option<Vec<Error>>
 }
 
-impl<'req> Error<'req> {
+/// Implementation of the `From` trait for `failure::Error`, which allows bastic failure
+/// functionality to be used with the `Honeybadger::into_payload` API, to marshal a payload for
+/// Honeybadger's Exceptions API. 
+impl From<failure::Error> for Error {
+    fn from(error: failure::Error) -> Error {
+
+        Error{ 
+            class: format!("{}", error),
+            message: Some(format!("{:?}", error)),
+            causes: Some(error.iter_causes()
+                         .map(|cause| 
+                              Error {
+                                  class: format!("{}", cause),
+                                  message: Some(format!("{:?}", cause)),
+                                  causes: None
+                              }
+                         )
+                         .collect())
+        }
+    }
+}
+
+impl Error {
     /// Internal API to create a new Error instance for serialization purposes.
     pub fn new<E>(error: &E) -> Error 
         where E: ChainedError {
         Error {
-            class: error.description(),
+            class: error.description().to_string(),
             message: Some(error.display_chain().to_string()),
             causes: Some(error.iter()
                          .map(|cause| Error::std_err(cause))
@@ -35,7 +60,7 @@ impl<'req> Error<'req> {
 
     fn std_err(error: &::std::error::Error) -> Error {
         Error {
-            class: error.description(),
+            class: error.description().to_string(),
             message: None,
             causes: error.cause().map(|cause| vec![Error::std_err(cause)])
         }
@@ -66,4 +91,35 @@ pub struct Server<'req> {
     pub hostname: &'req str,
     pub time: u64,
     pub pid: u32
+}
+
+#[cfg(test)]
+mod tests {
+
+    use errors::*;
+    use failure;
+    use notice;
+
+
+    #[test]
+    fn test_chained_err() {
+        let error : Result<()> = Err(ErrorKind::RedirectionError.into());
+        let chain = error.chain_err(|| ErrorKind::RateExceededError);
+        let notice = ::notice::Error::new(&chain.unwrap_err());
+
+        assert_eq!("Honeybadger rate limit exceeded", notice.class);
+        if let Some(causes) = notice.causes {
+            assert_eq!(2, causes.len());
+        } else {
+            assert_eq!("", "Missing causes in ::notice::Error");
+        }
+    }
+
+    #[test]
+    fn test_failure_err() {
+
+        let error : failure::Error = failure::err_msg("test_error_message");
+        let notice : notice::Error = notice::From::from(error);
+        assert_eq!("test_error_message", notice.class);
+    }
 }
