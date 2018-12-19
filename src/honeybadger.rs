@@ -4,19 +4,20 @@ use std::env;
 use std::fmt;
 use std::iter::FromIterator;
 use std::process;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use hyper::client::{Client, HttpConnector};
-use hyper::{Body, Request};
-use hyper::rt::Future;
-use hyper_tls::HttpsConnector;
-use http::StatusCode;
+use futures::future::result;
 use http;
+use http::StatusCode;
+use hyper::client::{Client, HttpConnector};
+use hyper::rt::Future;
+use hyper::{Body, Request};
+use hyper_tls::HttpsConnector;
 use os_type;
 use tokio::util::FutureExt;
 
 use errors::*;
-use error_chain::ChainedError;
 
 use hostname;
 use notice;
@@ -42,7 +43,7 @@ pub struct Config {
     hostname: String,
     endpoint: String,
     timeout: Duration,
-    threads: usize
+    threads: usize,
 }
 
 /// Configuration builder struct, used for building a `Config` instance
@@ -53,18 +54,17 @@ pub struct ConfigBuilder {
     hostname: Option<String>,
     endpoint: Option<String>,
     timeout: Option<Duration>,
-    threads: Option<usize>
+    threads: Option<usize>,
 }
 
 /// Instance containing the client connection and user configuration for this crate.
 pub struct Honeybadger {
-    client: Client<HttpsConnector<HttpConnector>>,
+    client: Arc<Client<HttpsConnector<HttpConnector>>>,
     config: Config,
-    user_agent: String
+    user_agent: String,
 }
 
 impl ConfigBuilder {
-
     /// Construct a `ConfigBuilder` to parametrize the Honeybadger client.
     ///
     /// `ConfigBuilder` is populated using environment variables, which will inject
@@ -93,8 +93,11 @@ impl ConfigBuilder {
             env: env::var("ENV").ok(),
             hostname: env::var("HOSTNAME").ok(),
             endpoint: env::var("HONEYBADGER_ENDPOINT").ok(),
-            timeout: env::var("HONEYBADGER_TIMEOUT").ok().and_then(|s| s.parse().ok()).map(|t| Duration::new(t, 0)),
-            threads: None
+            timeout: env::var("HONEYBADGER_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .map(|t| Duration::new(t, 0)),
+            threads: None,
         }
     }
 
@@ -234,25 +237,29 @@ impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
             api_key: self.api_key,
-            root: self.root
-                .or(env::current_dir().ok().and_then(|x| x.to_str().map(|x| x.to_owned())))
+            root: self
+                .root
+                .or(env::current_dir()
+                    .ok()
+                    .and_then(|x| x.to_str().map(|x| x.to_owned())))
                 .unwrap_or_else(|| "".to_owned()),
             env: self.env.unwrap_or_else(|| "".to_owned()),
-            hostname: self.hostname
+            hostname: self
+                .hostname
                 .or(hostname::get_hostname())
                 .unwrap_or_else(|| "".to_owned()),
-            endpoint: self.endpoint
+            endpoint: self
+                .endpoint
                 .unwrap_or_else(|| HONEYBADGER_ENDPOINT.to_owned()),
-            timeout: self.timeout
+            timeout: self
+                .timeout
                 .unwrap_or_else(|| Duration::new(HONEYBADGER_DEFAULT_TIMEOUT, 0)),
-            threads: self.threads
-                .unwrap_or(HONEYBADGER_DEFAULT_THREADS)
+            threads: self.threads.unwrap_or(HONEYBADGER_DEFAULT_THREADS),
         }
     }
 }
 
 impl Honeybadger {
-
     /// Constructs a Honeybadger instance, which may be used to send API notify requests.
     ///
     /// # Arguments
@@ -269,48 +276,53 @@ impl Honeybadger {
     /// assert_eq!(true, Honeybadger::new(config).is_ok());
     /// ```
     pub fn new(config: Config) -> Result<Self> {
-
         let https = HttpsConnector::new(config.threads)?;
 
         let builder = Client::builder();
 
         let os = os_type::current_platform();
-        let user_agent: String = fmt::format(
-            format_args!("HB-rust {}; {:?}/{}",
-                         VERSION, os.os_type, os.version));
+        let user_agent: String = fmt::format(format_args!(
+            "HB-rust {}; {:?}/{}",
+            VERSION, os.os_type, os.version
+        ));
 
-        debug!("Constructed honeybadger instance with configuration: {:?}", config);
+        debug!(
+            "Constructed honeybadger instance with configuration: {:?}",
+            config
+        );
 
         Ok(Honeybadger {
             config: config,
-            client: builder.build(https),
-            user_agent: user_agent
+            client: Arc::new(builder.build(https)),
+            user_agent: user_agent,
         })
     }
 
-    fn serialize<'req>(config: &Config,
-                          error: notice::Error,
-                          context: Option<HashMap<&'req str, &'req str>>)
-        -> serde_json::Result<Vec<u8>> {
-
+    fn serialize<'req>(
+        config: &Config,
+        error: notice::Error,
+        context: Option<HashMap<&'req str, &'req str>>,
+    ) -> serde_json::Result<Vec<u8>> {
         let notifier = Notifier {
             name: NOTIFIER_NAME,
             url: NOTIFIER_URL,
-            version: VERSION
+            version: VERSION,
         };
 
         let request = notice::Request {
             context: context,
-            cgi_data: HashMap::<String, String>::from_iter(env::vars())
+            cgi_data: HashMap::<String, String>::from_iter(env::vars()),
         };
 
         let server = notice::Server {
             project_root: &config.root,
             environment_name: &config.env,
             hostname: &config.hostname,
-            time: SystemTime::now().duration_since(UNIX_EPOCH)
-                .map(|v| v.as_secs()).unwrap_or(0),
-            pid: process::id()
+            time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|v| v.as_secs())
+                .unwrap_or(0),
+            pid: process::id(),
         };
 
         let notice = Notice {
@@ -318,24 +330,25 @@ impl Honeybadger {
             notifier: notifier,
             error: error,
             request: request,
-            server: server
+            server: server,
         };
 
         serde_json::to_vec(&notice)
     }
 
-    fn create_payload_with_config<'req>(config: &Config,
-                                        user_agent: &str,
-                                        error: notice::Error,
-                                        context: Option<HashMap<&'req str, &'req str>>)
-        -> Result<Request<Body>> {
-
+    fn create_payload_with_config<'req>(
+        config: &Config,
+        user_agent: &str,
+        error: notice::Error,
+        context: Option<HashMap<&'req str, &'req str>>,
+    ) -> Result<Request<Body>> {
         let mut request = Request::builder();
 
         let api_key: &str = config.api_key.as_ref();
         let user_agent: &str = user_agent.as_ref();
 
-        request.uri(config.endpoint.clone())
+        request
+            .uri(config.endpoint.clone())
             .method(http::Method::POST)
             .header(http::header::ACCEPT, "application/json")
             .header("X-API-Key", api_key)
@@ -345,115 +358,6 @@ impl Honeybadger {
 
         let r = request.body(Body::from(data))?;
         Ok(r)
-    }
-
-    /// Prepare a payload for the notify request.
-    ///
-    /// Requires the use of the [error_chain][1] crate.
-    ///
-    /// *Use the [`into_payload` method][3] for __generic__
-    /// error types*.
-    ///
-    /// ---
-    ///
-    /// # Arguments
-    ///
-    /// * `error`   - [`ChainedError`][4] reference compatible with an [error_chain][1] crate
-    /// * `context` - Optional [`HashMap`][5] to pass to the [Honeybadger context][2] API
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # #[macro_use] extern crate error_chain;
-    /// # extern crate honeybadger;
-    /// error_chain! {
-    ///   errors {
-    ///     MyCustomError
-    ///   }
-    /// }
-    /// #
-    /// # fn main() {
-    /// # use honeybadger::{ConfigBuilder, Honeybadger};
-    /// # let api_token = "ffffff";
-    /// # let config = ConfigBuilder::new(api_token).build();
-    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
-    ///
-    /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
-    /// honeybadger.create_payload(&error.unwrap_err(), None);
-    /// # }
-    /// ```
-    ///
-    /// ---
-    ///
-    /// [1]: https://rust-lang-nursery.github.io/error-chain/error_chain/index.html
-    /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
-    /// [3]: #method.into_payload
-    /// [4]: https://docs.rs/error-chain/0.12.0/error_chain/trait.ChainedError.html
-    /// [5]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
-    pub fn create_payload<'req, E>(&mut self,
-                                   error: &E,
-                                   context: Option<HashMap<&'req str, &'req str>>)
-        -> Result<Request<Body>>
-        where E: ChainedError {
-        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, notice::Error::new(error), context)
-    }
-
-    /// Generic method to prepare a payload for the notify request. 
-    ///
-    /// Useful alternative if `error_chain` crate is not being used for the error being sent to
-    /// Honeybadger. Requires a [`From`][1] implementation for a [`notice::Error`][5]. 
-    ///
-    /// This module provides an implementation for the [`failure::Error`][6] type, so `into_payload` is 
-    /// useable out-of-the-box for non-custom types from the `failure` crate.
-    ///
-    /// ---
-    ///
-    /// # Arguments
-    ///
-    /// * `error` - a concrete value that implements the [`From`][1] trait for a
-    /// [`notice::Error`][5].
-    /// * `context` - Optional [`HashMap`][7] to pass to the [Honeybadger context][2] API
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # extern crate failure;
-    /// # extern crate honeybadger;
-    /// fn parse_number(num: &str) -> Result<i32, failure::Error> {
-    ///   let r = num.parse::<i32>()?;
-    ///   Ok(r)
-    /// }
-    /// # fn main() {
-    /// # use honeybadger::{ConfigBuilder, Honeybadger};
-    /// # let api_token = "ffffff";
-    /// # let config = ConfigBuilder::new(api_token).build();
-    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
-    ///
-    /// honeybadger.into_payload(parse_number("foobar").unwrap_err(), None);
-    /// # }
-    /// ```
-    ///
-    /// # Implementing the Fail trait
-    ///
-    /// If you are [deriving `Fail`][3] or have a custom struct that implements `Fail`, in order to
-    /// enable this API, implement the [`From`][1] trait for the particular struct to convert it to a
-    /// [`notice::Error`][5] for use as a honeybadger payload.
-    ///
-    /// ---
-    ///
-    /// [1]: https://doc.rust-lang.org/std/convert/trait.From.html
-    /// [2]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
-    /// [3]: https://github.com/rust-lang-nursery/failure/blob/master/book/src/derive-fail.md
-    /// [4]: notice/struct.Error.html#implementations
-    /// [5]: notice/struct.Error.html
-    /// [6]: https://github.com/rust-lang-nursery/failure/blob/master/book/src/error.md
-    /// [7]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
-    pub fn into_payload<'req, E: Into<::notice::Error>>(&mut self,
-                                                        error: E,
-                                                        context: Option<HashMap<&'req str, &'req str>>)
-        -> Result<Request<Body>> 
-        where ::notice::Error: From<E> {
-        Honeybadger::create_payload_with_config(&self.config, &self.user_agent, error.into(), context)
     }
 
     fn convert_error(kind: ErrorKind) -> Error {
@@ -468,19 +372,23 @@ impl Honeybadger {
     ///
     /// # Arguments
     ///
-    /// * `request` - [Request][3] instance constructed with `create_payload`
+    /// * `error` - a struct that implements the [`From`][4] trait for a
+    /// [`notice::Error`][5].
+    /// * `context` - Optional [`HashMap`][7] to pass to the [Honeybadger context][6] API
     ///
-    /// # Example
+    /// # Examples
+    ///
+    /// ## With `chained_error::Error`
     ///
     /// ```rust
-    /// # #[macro_use] extern crate error_chain;
+    /// #[macro_use] extern crate error_chain;
     /// # extern crate honeybadger;
     /// # extern crate tokio;
-    /// # error_chain! {
-    /// #   errors {
-    /// #     MyCustomError
-    /// #   }
-    /// # }
+    /// error_chain! {
+    ///   errors {
+    ///     MyCustomError
+    ///   }
+    /// }
     /// #
     /// # fn main() {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
@@ -488,49 +396,129 @@ impl Honeybadger {
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
-    /// #
-    /// # let error : Result<()> = Err(ErrorKind::MyCustomError.into());
-    /// #
-    /// let mut rt = current_thread::Runtime::new().unwrap();
-    /// let payload = honeybadger.create_payload(&error.unwrap_err(), None).unwrap();
-    /// let future = honeybadger.notify(payload);
     ///
-    /// // note: blocks the current thread!
+    /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
+    ///
+    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let future = honeybadger.notify(
+    ///   honeybadger::notice::Error::new(&error.unwrap_err()),
+    ///   None);
+    ///
     /// rt.block_on(future);
     /// #
     /// # }
     /// ```
+    ///
+    /// ## With `failure::Error`
+    ///
+    /// ```rust
+    /// #[macro_use] extern crate failure;
+    /// # extern crate honeybadger;
+    /// # extern crate tokio;
+    /// #[derive(Fail, Debug)]
+    /// #[fail(display = "Failure error")]
+    /// struct MyCustomError;
+    /// # fn main() {
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # use tokio::runtime::current_thread;
+    /// # let api_token = "ffffff";
+    /// # let config = ConfigBuilder::new(api_token).build();
+    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
+    ///
+    /// let error: Result<(), failure::Error> = Err(MyCustomError {}.into());
+    ///
+    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let future = honeybadger.notify(
+    ///   error.unwrap_err(),
+    ///   None);
+    ///
+    /// rt.block_on(future);
+    /// #
+    /// # }
+    /// ```
+    ///
+    /// ## With `Box<std::error::Error>`.
+    ///
+    /// Note that [`std::error::Error`](8) does not implement [Sync](9), and it's not possible to
+    /// use the error type across future combinators, so it's recommended to convert into a
+    /// `Box<std::error::Error>` in the same closure as the Honeybadger API call.
+    ///
+    /// ```rust
+    /// # extern crate honeybadger;
+    /// # extern crate tokio;
+    /// # fn main() {
+    /// # use honeybadger::{ConfigBuilder, Honeybadger};
+    /// # use tokio::runtime::current_thread;
+    /// # let api_token = "ffffff";
+    /// # let config = ConfigBuilder::new(api_token).build();
+    /// # let mut honeybadger = Honeybadger::new(config).unwrap();
+    ///
+    /// let error: Result<(), Box<std::error::Error>> = Err(
+    ///   std::io::Error::new(
+    ///     std::io::ErrorKind::Other, "std Error"
+    ///   ).into()
+    /// );
+    ///
+    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let future = honeybadger.notify(
+    ///   error.unwrap_err(),
+    ///   None);
+    ///
+    /// rt.block_on(future);
+    /// #
+    /// # }
+    /// ```
+    ///
     /// [1]: https://github.com/tokio-rs/tokio
     /// [2]: https://docs.rs/futures/0.2.1/futures/future/index.html
     /// [3]: https://docs.rs/hyper/0.12.5/hyper/struct.Request.html
-    pub fn notify<'req>(&mut self,
-                        request: Request<Body>) -> impl Future<Item=(), Error=Error> {
-
-        Honeybadger::notify_with_client(&self.client, &self.config, &self.user_agent, request)
+    /// [4]: https://doc.rust-lang.org/std/convert/trait.From.html
+    /// [5]: notice/struct.Error.html
+    /// [6]: https://docs.honeybadger.io/ruby/getting-started/adding-context-to-errors.html#context-in-honeybadger-notify
+    /// [7]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
+    /// [8]: https://doc.rust-lang.org/std/error/trait.Error.html
+    /// [9]: https://doc.rust-lang.org/std/marker/trait.Sync.html
+    pub fn notify<'req, E: Into<::notice::Error>>(
+        self,
+        error: E,
+        context: Option<HashMap<&'req str, &'req str>>,
+    ) -> impl Future<Item = (), Error = Error> + '_
+    where
+        ::notice::Error: From<E>,
+    {
+        let client = Arc::clone(&self.client);
+        let t = self.config.timeout.as_secs();
+        result(Honeybadger::create_payload_with_config(
+            &self.config,
+            &self.user_agent,
+            error.into(),
+            context,
+        ))
+        .and_then(move |request| Honeybadger::notify_with_client(client, t, request))
     }
 
-    fn notify_with_client<'req, C>(client: &Client<C>,
-                                   config: &Config,
-                                   user_agent: &str,
-                                   request: Request<Body>) -> impl Future<Item=(), Error=Error>
-        where C: ::hyper::client::connect::Connect + Sync + 'static,
-              C::Error: 'static,
-              C::Transport: 'static {
-
+    fn notify_with_client<'req, C>(
+        client: Arc<Client<C>>,
+        timeout: u64,
+        request: Request<Body>,
+    ) -> impl Future<Item = (), Error = Error>
+    where
+        C: ::hyper::client::connect::Connect + Sync + 'static,
+        C::Error: 'static,
+        C::Transport: 'static,
+    {
         let now = ::std::time::Instant::now();
-        let t = config.timeout.as_secs();
 
-        debug!("Sending honeybadger payload with user agent: {}", user_agent);
-
-        client.request(request)
+        client
+            .request(request)
             .map_err(move |e| {
                 error!("Honeybadger client error: {}", e);
                 Honeybadger::convert_error(ErrorKind::Hyper(e))
             })
-            .deadline(now + config.timeout)
+            .deadline(now + Duration::from_secs(timeout))
             .map_err(move |e| {
                 error!("Honeybadger request timed-out!: {}", e);
-                Honeybadger::convert_error(ErrorKind::TimeoutError(t))
+                Honeybadger::convert_error(ErrorKind::TimeoutError(timeout))
             })
             .and_then(|response| {
                 let (parts, _) = response.into_parts();
@@ -542,9 +530,7 @@ impl Honeybadger {
                     StatusCode::UNPROCESSABLE_ENTITY => Err(ErrorKind::NotProcessedError.into()),
                     StatusCode::TOO_MANY_REQUESTS => Err(ErrorKind::RateExceededError.into()),
                     StatusCode::INTERNAL_SERVER_ERROR => Err(ErrorKind::ServerError.into()),
-                    _ => {
-                        Err(ErrorKind::UnknownStatusCodeError(parts.status.as_u16()).into())
-                    }
+                    _ => Err(ErrorKind::UnknownStatusCodeError(parts.status.as_u16()).into()),
                 }
             })
     }
@@ -554,8 +540,8 @@ impl Honeybadger {
 mod tests {
 
     use honeybadger::*;
-    use hyper::Body;
     use hyper::client::Client;
+    use hyper::Body;
     use hyper_mock::SequentialConnector;
     use std::time::Duration;
     use tokio::runtime::current_thread;
@@ -564,15 +550,16 @@ mod tests {
         let mut c = SequentialConnector::default();
         c.content.push(res);
 
-        let client = Client::builder()
-            .build::<SequentialConnector, Body>(c);
+        let client = Arc::new(Client::builder().build::<SequentialConnector, Body>(c));
 
         let mut rt = current_thread::Runtime::new().unwrap();
 
-        let error : Result<()> = Err(ErrorKind::RedirectionError.into());
+        let error: Result<()> = Err(ErrorKind::RedirectionError.into());
         let error = notice::Error::new(&error.unwrap_err());
-        let req = Honeybadger::create_payload_with_config(config, "test-client", error, None).unwrap();
-        let res = Honeybadger::notify_with_client(&client, config, "test-client", req);
+        let req =
+            Honeybadger::create_payload_with_config(config, "test-client", error, None).unwrap();
+        let t = config.timeout.as_secs();
+        let res = Honeybadger::notify_with_client(client, t, req);
 
         rt.block_on(res)
     }
@@ -580,10 +567,14 @@ mod tests {
     #[test]
     fn test_notify_ok() {
         let config = ConfigBuilder::new("dummy-api-key").build();
-        let res = test_client_with_response("HTTP/1.1 201 Created\r\n\
-                                             Server: mock1\r\n\
-                                             \r\n\
-                                             ".to_string(), &config);
+        let res = test_client_with_response(
+            "HTTP/1.1 201 Created\r\n\
+             Server: mock1\r\n\
+             \r\n\
+             "
+            .to_string(),
+            &config,
+        );
 
         assert_eq!((), res.unwrap());
     }
@@ -595,22 +586,25 @@ mod tests {
 
         match res {
             Err(Error(ErrorKind::TimeoutError(5), _)) => assert!(true),
-            _ =>
-                assert_eq!("", "expected timeout error, but was not")
+            _ => assert_eq!("", "expected timeout error, but was not"),
         }
     }
 
     #[test]
     fn test_notify_rate_exceeded() {
         let config = ConfigBuilder::new("dummy-api-key").build();
-        let res = test_client_with_response("HTTP/1.1 429 Too Many Requests\r\n\
-                                             Server: mock1\r\n\
-                                             \r\n\
-                                             ".to_string(), &config);
+        let res = test_client_with_response(
+            "HTTP/1.1 429 Too Many Requests\r\n\
+             Server: mock1\r\n\
+             \r\n\
+             "
+            .to_string(),
+            &config,
+        );
 
         match res {
             Err(Error(ErrorKind::RateExceededError, _)) => assert!(true),
-            _ => assert_eq!("", "expected rate exceeded error, but was not")
+            _ => assert_eq!("", "expected rate exceeded error, but was not"),
         }
     }
 
@@ -621,7 +615,8 @@ mod tests {
         assert_ne!("/tmp/build", config.root);
 
         let config = ConfigBuilder::new("dummy-api-key")
-            .with_root("/tmp/build").build();
+            .with_root("/tmp/build")
+            .build();
 
         assert_eq!("/tmp/build", config.root);
     }
@@ -632,8 +627,7 @@ mod tests {
 
         assert_eq!("", config.env);
 
-        let config = ConfigBuilder::new("dummy-api-key")
-            .with_env("test").build();
+        let config = ConfigBuilder::new("dummy-api-key").with_env("test").build();
 
         assert_eq!("test", config.env);
     }
@@ -645,7 +639,8 @@ mod tests {
         assert_ne!("hickyblue", config.hostname);
 
         let config = ConfigBuilder::new("dummy-api-key")
-            .with_hostname("hickyblue").build();
+            .with_hostname("hickyblue")
+            .build();
 
         assert_eq!("hickyblue", config.hostname);
     }
@@ -657,7 +652,8 @@ mod tests {
         assert_eq!(HONEYBADGER_ENDPOINT, config.endpoint);
 
         let config = ConfigBuilder::new("dummy-api-key")
-            .with_endpoint("http://example.com/").build();
+            .with_endpoint("http://example.com/")
+            .build();
 
         assert_eq!("http://example.com/", config.endpoint);
     }
@@ -666,10 +662,14 @@ mod tests {
     fn test_with_timeout() {
         let config = ConfigBuilder::new("dummy-api-key").build();
 
-        assert_eq!(Duration::new(HONEYBADGER_DEFAULT_TIMEOUT, 0), config.timeout);
+        assert_eq!(
+            Duration::new(HONEYBADGER_DEFAULT_TIMEOUT, 0),
+            config.timeout
+        );
 
         let config = ConfigBuilder::new("dummy-api-key")
-            .with_timeout(&Duration::new(20, 0)).build();
+            .with_timeout(&Duration::new(20, 0))
+            .build();
 
         assert_eq!(Duration::new(20, 0), config.timeout);
     }
@@ -681,7 +681,8 @@ mod tests {
         assert_eq!(HONEYBADGER_DEFAULT_THREADS, config.threads);
 
         let config = ConfigBuilder::new("dummy-api-key")
-            .with_threads(128).build();
+            .with_threads(128)
+            .build();
 
         assert_eq!(128, config.threads);
     }

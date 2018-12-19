@@ -12,7 +12,7 @@ pub struct Notice<'req> {
     pub notifier: Notifier,
     pub error: Error,
     pub request: Request<'req>,
-    pub server: Server<'req>
+    pub server: Server<'req>,
 }
 
 /// Serializable leaf node representing the error to notify on.
@@ -20,7 +20,7 @@ pub struct Notice<'req> {
 pub struct Error {
     pub class: String,
     pub message: Option<String>,
-    pub causes: Option<Vec<Error>>
+    pub causes: Option<Vec<Error>>,
 }
 
 /// Implementation of the `From` trait for `failure::Error`, which allows bastic failure
@@ -28,33 +28,62 @@ pub struct Error {
 /// Honeybadger's Exceptions API. 
 impl From<failure::Error> for Error {
     fn from(error: failure::Error) -> Error {
-
-        Error{ 
+        Error {
             class: format!("{}", error),
             message: Some(format!("{:?}", error)),
-            causes: Some(error.iter_causes()
-                         .map(|cause| 
-                              Error {
-                                  class: format!("{}", cause),
-                                  message: Some(format!("{:?}", cause)),
-                                  causes: None
-                              }
-                         )
-                         .collect())
+            causes: Some(
+                error
+                    .iter_causes()
+                    .map(|cause| Error {
+                        class: format!("{}", cause),
+                        message: Some(format!("{:?}", cause)),
+                        causes: None,
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl From<&failure::Error> for Error {
+    fn from(error: &failure::Error) -> Error {
+        Error {
+            class: format!("{}", error),
+            message: Some(format!("{:?}", error)),
+            causes: Some(
+                error
+                    .iter_causes()
+                    .map(|cause| Error {
+                        class: format!("{}", cause),
+                        message: Some(format!("{:?}", cause)),
+                        causes: None,
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl From<Box<std::error::Error>> for Error {
+    fn from(error: Box<std::error::Error>) -> Error {
+        Error {
+            class: format!("{}", error),
+            message: Some(format!("{:?}", error)),
+            causes: None,
         }
     }
 }
 
 impl Error {
     /// Internal API to create a new Error instance for serialization purposes.
-    pub fn new<E>(error: &E) -> Error 
-        where E: ChainedError {
+    pub fn new<E>(error: &E) -> Error
+    where
+        E: ChainedError,
+    {
         Error {
             class: error.description().to_string(),
             message: Some(error.display_chain().to_string()),
-            causes: Some(error.iter()
-                         .map(|cause| Error::std_err(cause))
-                         .collect())
+            causes: Some(error.iter().map(|cause| Error::std_err(cause)).collect()),
         }
     }
 
@@ -62,7 +91,7 @@ impl Error {
         Error {
             class: error.description().to_string(),
             message: None,
-            causes: error.cause().map(|cause| vec![Error::std_err(cause)])
+            causes: error.cause().map(|cause| vec![Error::std_err(cause)]),
         }
     }
 }
@@ -72,7 +101,7 @@ impl Error {
 pub struct Notifier {
     pub name: &'static str,
     pub url: &'static str,
-    pub version: &'static str
+    pub version: &'static str,
 }
 
 /// Leaf node containing the context hash and environment at the time of
@@ -80,7 +109,7 @@ pub struct Notifier {
 #[derive(Serialize)]
 pub struct Request<'req> {
     pub context: Option<HashMap<&'req str, &'req str>>,
-    pub cgi_data: HashMap<String, String>
+    pub cgi_data: HashMap<String, String>,
 }
 
 /// Leaf node containing OS system information at the time of serialization
@@ -90,7 +119,7 @@ pub struct Server<'req> {
     pub environment_name: &'req str,
     pub hostname: &'req str,
     pub time: u64,
-    pub pid: u32
+    pub pid: u32,
 }
 
 #[cfg(test)]
