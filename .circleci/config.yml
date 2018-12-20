@@ -7,6 +7,8 @@ jobs:
     steps:
       - checkout
       - run: cargo update
+      - run: cargo build
+      - run: cargo build --examples
       - run: cargo test
 workflows:
   version: 2
