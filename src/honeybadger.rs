@@ -7,27 +7,19 @@ use std::process;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use futures::future::result;
-use http;
 use http::StatusCode;
-use hyper::client::{Client, HttpConnector};
-use hyper::rt::Future;
-use hyper::{Body, Request};
+use hyper::client::{HttpConnector};
+use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
-use os_type;
-use tokio::util::FutureExt;
 
-use errors::*;
-
-use hostname;
-use notice;
+use crate::errors::*;
+use crate::notice;
 use notice::{Notice, Notifier};
 
-use serde_json;
-
-const HONEYBADGER_ENDPOINT: &'static str = "https://api.honeybadger.io/v1/notices";
+const HONEYBADGER_ENDPOINT: &'static str = "/v1/notices";
 const HONEYBADGER_DEFAULT_TIMEOUT: u64 = 5;
 const HONEYBADGER_DEFAULT_THREADS: usize = 4;
+const HONEYBADGER_SERVER_URL: &'static str = "https://api.honeybadger.io";
 
 const NOTIFIER_NAME: &'static str = "honeybadger";
 const NOTIFIER_URL: &'static str = "https://github.com/fussybeaver/honeybader-rs";
@@ -246,11 +238,11 @@ impl ConfigBuilder {
             env: self.env.unwrap_or_else(|| "".to_owned()),
             hostname: self
                 .hostname
-                .or(hostname::get_hostname())
+                .or(hostname::get().ok().map(|s| s.to_string_lossy().to_string()))
                 .unwrap_or_else(|| "".to_owned()),
             endpoint: self
                 .endpoint
-                .unwrap_or_else(|| HONEYBADGER_ENDPOINT.to_owned()),
+                .unwrap_or_else(|| format!("{}{}", if cfg!(test) { mockito::server_url() } else { String::from(HONEYBADGER_SERVER_URL) }, HONEYBADGER_ENDPOINT ) ),
             timeout: self
                 .timeout
                 .unwrap_or_else(|| Duration::new(HONEYBADGER_DEFAULT_TIMEOUT, 0)),
@@ -276,7 +268,7 @@ impl Honeybadger {
     /// assert_eq!(true, Honeybadger::new(config).is_ok());
     /// ```
     pub fn new(config: Config) -> Result<Self> {
-        let https = HttpsConnector::new(config.threads)?;
+        let https = HttpsConnector::new();
 
         let builder = Client::builder();
 
@@ -342,21 +334,18 @@ impl Honeybadger {
         error: notice::Error,
         context: Option<HashMap<&'req str, &'req str>>,
     ) -> Result<Request<Body>> {
-        let mut request = Request::builder();
-
         let api_key: &str = config.api_key.as_ref();
         let user_agent: &str = user_agent.as_ref();
 
-        request
+        let data = Honeybadger::serialize(config, error, context)?;
+        let r = Request::builder()
             .uri(config.endpoint.clone())
             .method(http::Method::POST)
             .header(http::header::ACCEPT, "application/json")
             .header("X-API-Key", api_key)
-            .header(http::header::USER_AGENT, user_agent);
+            .header(http::header::USER_AGENT, user_agent)
+            .body(Body::from(data))?;
 
-        let data = Honeybadger::serialize(config, error, context)?;
-
-        let r = request.body(Body::from(data))?;
         Ok(r)
     }
 
@@ -382,8 +371,6 @@ impl Honeybadger {
     ///
     /// ```rust
     /// #[macro_use] extern crate error_chain;
-    /// # extern crate honeybadger;
-    /// # extern crate tokio;
     /// error_chain! {
     ///   errors {
     ///     MyCustomError
@@ -392,14 +379,14 @@ impl Honeybadger {
     /// #
     /// # fn main() {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
-    /// # use tokio::runtime::current_thread;
+    /// # use tokio::runtime::Runtime;
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
     ///
     /// let error : Result<()> = Err(ErrorKind::MyCustomError.into());
     ///
-    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let mut rt = Runtime::new().unwrap();
     /// let future = honeybadger.notify(
     ///   honeybadger::notice::Error::new(&error.unwrap_err()),
     ///   None);
@@ -411,28 +398,26 @@ impl Honeybadger {
     ///
     /// ## With `failure::Error`
     ///
-    /// ```rust
+    /// ```rust, no_run
     /// #[macro_use] extern crate failure;
-    /// # extern crate honeybadger;
-    /// # extern crate tokio;
     /// #[derive(Fail, Debug)]
     /// #[fail(display = "Failure error")]
     /// struct MyCustomError;
     /// # fn main() {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
-    /// # use tokio::runtime::current_thread;
+    /// # use tokio::runtime::Runtime;
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
     ///
     /// let error: Result<(), failure::Error> = Err(MyCustomError {}.into());
     ///
-    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let mut rt = Runtime::new().unwrap();
     /// let future = honeybadger.notify(
     ///   error.unwrap_err(),
     ///   None);
     ///
-    /// rt.block_on(future);
+    /// rt.block_on(future).unwrap();
     /// #
     /// # }
     /// ```
@@ -443,12 +428,10 @@ impl Honeybadger {
     /// use the error type across future combinators, so it's recommended to convert into a
     /// `Box<std::error::Error>` in the same closure as the Honeybadger API call.
     ///
-    /// ```rust
-    /// # extern crate honeybadger;
-    /// # extern crate tokio;
+    /// ```rust, no_run
     /// # fn main() {
     /// # use honeybadger::{ConfigBuilder, Honeybadger};
-    /// # use tokio::runtime::current_thread;
+    /// # use tokio::runtime::Runtime;
     /// # let api_token = "ffffff";
     /// # let config = ConfigBuilder::new(api_token).build();
     /// # let mut honeybadger = Honeybadger::new(config).unwrap();
@@ -459,12 +442,12 @@ impl Honeybadger {
     ///   ).into()
     /// );
     ///
-    /// let mut rt = current_thread::Runtime::new().unwrap();
+    /// let mut rt = Runtime::new().unwrap();
     /// let future = honeybadger.notify(
     ///   error.unwrap_err(),
     ///   None);
     ///
-    /// rt.block_on(future);
+    /// rt.block_on(future).unwrap();
     /// #
     /// # }
     /// ```
@@ -478,88 +461,82 @@ impl Honeybadger {
     /// [7]: https://doc.rust-lang.org/std/collections/struct.HashMap.html
     /// [8]: https://doc.rust-lang.org/std/error/trait.Error.html
     /// [9]: https://doc.rust-lang.org/std/marker/trait.Sync.html
-    pub fn notify<'req, E: Into<::notice::Error>>(
+    pub async fn notify<'req, E: Into<notice::Error>>(
         self,
         error: E,
         context: Option<HashMap<&'req str, &'req str>>,
-    ) -> impl Future<Item = (), Error = Error> + '_
+    ) -> Result<()>
     where
-        ::notice::Error: From<E>,
+        notice::Error: From<E>,
     {
-        let client = Arc::clone(&self.client);
         let t = self.config.timeout.as_secs();
-        result(Honeybadger::create_payload_with_config(
+        let request = Honeybadger::create_payload_with_config(
             &self.config,
             &self.user_agent,
             error.into(),
             context,
-        ))
-        .and_then(move |request| Honeybadger::notify_with_client(client, t, request))
+        )?;
+        Ok(Honeybadger::notify_with_client(&self.client, t, request).await?)
     }
 
-    fn notify_with_client<'req, C>(
-        client: Arc<Client<C>>,
+    async fn notify_with_client<'req, C>(
+        client: &Client<C>,
         timeout: u64,
         request: Request<Body>,
-    ) -> impl Future<Item = (), Error = Error>
+    ) -> Result<()>
     where
-        C: ::hyper::client::connect::Connect + Sync + 'static,
-        C::Error: 'static,
-        C::Transport: 'static,
+        C: hyper::client::connect::Connect + Sync + 'static + Clone + Send,
     {
-        let now = ::std::time::Instant::now();
+        let req = client
+            .request(request);
 
-        client
-            .request(request)
-            .map_err(move |e| {
-                error!("Honeybadger client error: {}", e);
-                Honeybadger::convert_error(ErrorKind::Hyper(e))
-            })
-            .deadline(now + Duration::from_secs(timeout))
-            .map_err(move |e| {
-                error!("Honeybadger request timed-out!: {}", e);
-                Honeybadger::convert_error(ErrorKind::TimeoutError(timeout))
-            })
-            .and_then(|response| {
-                let (parts, _) = response.into_parts();
-                debug!("Honeybadger API returned status: {}", parts.status);
-                match parts.status {
-                    s if s.is_success() => Ok(()),
-                    s if s.is_redirection() => Err(ErrorKind::RedirectionError.into()),
-                    StatusCode::UNAUTHORIZED => Err(ErrorKind::UnauthorizedError.into()),
-                    StatusCode::UNPROCESSABLE_ENTITY => Err(ErrorKind::NotProcessedError.into()),
-                    StatusCode::TOO_MANY_REQUESTS => Err(ErrorKind::RateExceededError.into()),
-                    StatusCode::INTERNAL_SERVER_ERROR => Err(ErrorKind::ServerError.into()),
-                    _ => Err(ErrorKind::UnknownStatusCodeError(parts.status.as_u16()).into()),
-                }
-            })
+        let response = match tokio::time::timeout(Duration::from_secs(timeout), req).await {
+            Ok(v) => v.map_err(|err| Honeybadger::convert_error(ErrorKind::Hyper(err))),
+            Err(_) => Err(Honeybadger::convert_error(ErrorKind::TimeoutError(timeout))),
+        }?;
+
+        let (parts, _) = response.into_parts();
+        debug!("Honeybadger API returned status: {}", parts.status);
+        match parts.status {
+            s if s.is_success() => Ok(()),
+            s if s.is_redirection() => Err(ErrorKind::RedirectionError.into()),
+            StatusCode::UNAUTHORIZED => Err(ErrorKind::UnauthorizedError.into()),
+            StatusCode::UNPROCESSABLE_ENTITY => Err(ErrorKind::NotProcessedError.into()),
+            StatusCode::TOO_MANY_REQUESTS => Err(ErrorKind::RateExceededError.into()),
+            StatusCode::INTERNAL_SERVER_ERROR => Err(ErrorKind::ServerError.into()),
+            _ => Err(ErrorKind::UnknownStatusCodeError(parts.status.as_u16()).into()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use honeybadger::*;
+    use crate::honeybadger::*;
     use hyper::client::Client;
     use hyper::Body;
-    use hyper_mock::SequentialConnector;
     use std::time::Duration;
-    use tokio::runtime::current_thread;
+    use tokio::runtime::Runtime;
+    use mockito::mock;
 
-    fn test_client_with_response(res: String, config: &Config) -> Result<()> {
-        let mut c = SequentialConnector::default();
-        c.content.push(res);
+    fn test_client_with_response(status: usize, config: &Config) -> Result<()> {
+        let _m = mock("POST", HONEYBADGER_ENDPOINT)
+            .with_status(status)
+            .with_header("Content-Type", "application/json")
+            .create();
 
-        let client = Arc::new(Client::builder().build::<SequentialConnector, Body>(c));
+        let mut http_connector = HttpConnector::new();
+        http_connector.enforce_http(false);
+        let client = Client::builder().build::<HttpConnector, Body>(http_connector);
 
-        let mut rt = current_thread::Runtime::new().unwrap();
+        let mut rt = Runtime::new().unwrap();
 
         let error: Result<()> = Err(ErrorKind::RedirectionError.into());
         let error = notice::Error::new(&error.unwrap_err());
         let req =
             Honeybadger::create_payload_with_config(config, "test-client", error, None).unwrap();
         let t = config.timeout.as_secs();
-        let res = Honeybadger::notify_with_client(client, t, req);
+        let res = Honeybadger::notify_with_client(&client, t, req);
 
         rt.block_on(res)
     }
@@ -567,12 +544,7 @@ mod tests {
     #[test]
     fn test_notify_ok() {
         let config = ConfigBuilder::new("dummy-api-key").build();
-        let res = test_client_with_response(
-            "HTTP/1.1 201 Created\r\n\
-             Server: mock1\r\n\
-             \r\n\
-             "
-            .to_string(),
+        let res = test_client_with_response(201,
             &config,
         );
 
@@ -580,25 +552,10 @@ mod tests {
     }
 
     #[test]
-    fn test_notify_timeout() {
-        let config = ConfigBuilder::new("dummy-api-key").build();
-        let res = test_client_with_response("HTTP/1.1 201 Created\r\n".to_string(), &config);
-
-        match res {
-            Err(Error(ErrorKind::TimeoutError(5), _)) => assert!(true),
-            _ => assert_eq!("", "expected timeout error, but was not"),
-        }
-    }
-
-    #[test]
     fn test_notify_rate_exceeded() {
         let config = ConfigBuilder::new("dummy-api-key").build();
         let res = test_client_with_response(
-            "HTTP/1.1 429 Too Many Requests\r\n\
-             Server: mock1\r\n\
-             \r\n\
-             "
-            .to_string(),
+            429,
             &config,
         );
 
@@ -649,7 +606,7 @@ mod tests {
     fn test_with_endpoint() {
         let config = ConfigBuilder::new("dummy-api-key").build();
 
-        assert_eq!(HONEYBADGER_ENDPOINT, config.endpoint);
+        assert_eq!(format!("{}{}", mockito::server_url(), HONEYBADGER_ENDPOINT), config.endpoint);
 
         let config = ConfigBuilder::new("dummy-api-key")
             .with_endpoint("http://example.com/")
