@@ -30,17 +30,13 @@
 //! example will execute code in `do_work`, send a honeybadger exception if it fails, and
 //! subsequently end the program.  
 //!
-//! ```rust
+//! ```rust, no_run
 //! # #[macro_use] extern crate error_chain;
-//! # extern crate honeybadger;
-//! # extern crate tokio;
 //! # error_chain! {
 //! # }
-//! use tokio::prelude::*;
-//! use tokio::prelude::future::result;
-//! use tokio::runtime::run;
+//! use tokio::runtime::Runtime;
 //!
-//! fn do_work() -> Result<()> {
+//! async fn do_work() -> Result<()> {
 //!
 //!   // write code ...
 //!
@@ -53,12 +49,16 @@
 //! // let api_token = "...";
 //! let config = ConfigBuilder::new(api_token).build();
 //! let mut hb = Honeybadger::new(config).unwrap();
+//! let mut rt = Runtime::new().unwrap();
 //!
-//! let work = result(do_work())
-//!   .or_else(move |e| hb.notify(honeybadger::notice::Error::new(&e), None))
-//!   .map_err(|e| println!("error = {:?}", e));
+//! let future = async move {
+//!   match do_work().await {
+//!     Ok(_) => Ok(()),
+//!     Err(e) => hb.notify(honeybadger::notice::Error::new(&e), None).await
+//!   }
+//! };
 //!
-//! run(work);
+//! rt.block_on(future).unwrap();
 //! # }
 //! ```
 //![1]: https://www.honeybadger.io/
@@ -69,30 +69,16 @@
 // Increase the compiler's recursion limit for the `error_chain` crate.
 #![recursion_limit = "1024"]
 
-extern crate backtrace;
 #[macro_use]
 extern crate error_chain;
-extern crate failure;
-extern crate futures;
-extern crate hostname;
-extern crate http;
-extern crate hyper;
-extern crate hyper_tls;
 #[macro_use]
 extern crate log;
-extern crate os_type;
-//extern crate native_tls;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
-extern crate serde_json;
-extern crate tokio;
-#[cfg(test)]
-extern crate yup_hyper_mock as hyper_mock;
 
 pub mod errors;
 mod honeybadger;
 pub mod notice;
 
 // export
-pub use honeybadger::{ConfigBuilder, Honeybadger};
+pub use crate::honeybadger::{ConfigBuilder, Honeybadger};

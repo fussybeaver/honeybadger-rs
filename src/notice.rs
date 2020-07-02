@@ -25,7 +25,7 @@ pub struct Error {
 
 /// Implementation of the `From` trait for `failure::Error`, which allows bastic failure
 /// functionality to be used with the `Honeybadger::into_payload` API, to marshal a payload for
-/// Honeybadger's Exceptions API. 
+/// Honeybadger's Exceptions API.
 impl From<failure::Error> for Error {
     fn from(error: failure::Error) -> Error {
         Error {
@@ -64,8 +64,8 @@ impl From<&failure::Error> for Error {
     }
 }
 
-impl From<Box<std::error::Error>> for Error {
-    fn from(error: Box<std::error::Error>) -> Error {
+impl From<Box<dyn std::error::Error>> for Error {
+    fn from(error: Box<dyn std::error::Error>) -> Error {
         Error {
             class: format!("{}", error),
             message: Some(format!("{:?}", error)),
@@ -87,11 +87,11 @@ impl Error {
         }
     }
 
-    fn std_err(error: &::std::error::Error) -> Error {
+    fn std_err(error: &dyn std::error::Error) -> Error {
         Error {
             class: error.description().to_string(),
             message: None,
-            causes: error.cause().map(|cause| vec![Error::std_err(cause)]),
+            causes: error.source().map(|cause| vec![Error::std_err(cause)]),
         }
     }
 }
@@ -125,16 +125,14 @@ pub struct Server<'req> {
 #[cfg(test)]
 mod tests {
 
-    use errors::*;
-    use failure;
-    use notice;
-
+    use crate::errors::*;
+    use crate::notice;
 
     #[test]
     fn test_chained_err() {
-        let error : Result<()> = Err(ErrorKind::RedirectionError.into());
+        let error: Result<()> = Err(ErrorKind::RedirectionError.into());
         let chain = error.chain_err(|| ErrorKind::RateExceededError);
-        let notice = ::notice::Error::new(&chain.unwrap_err());
+        let notice = notice::Error::new(&chain.unwrap_err());
 
         assert_eq!("Honeybadger rate limit exceeded", notice.class);
         if let Some(causes) = notice.causes {
@@ -146,9 +144,8 @@ mod tests {
 
     #[test]
     fn test_failure_err() {
-
-        let error : failure::Error = failure::err_msg("test_error_message");
-        let notice : notice::Error = notice::From::from(error);
+        let error: failure::Error = failure::err_msg("test_error_message");
+        let notice: notice::Error = notice::From::from(error);
         assert_eq!("test_error_message", notice.class);
     }
 }

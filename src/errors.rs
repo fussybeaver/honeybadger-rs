@@ -1,14 +1,12 @@
 //! Errors used by this package and chained from upstream libraries
 use http;
 use hyper;
-use hyper_tls;
-use std::io;
 use serde_json;
+use std::io;
 
 error_chain! {
     foreign_links {
         Hyper(hyper::Error);
-        HyperTls(hyper_tls::Error);
         Http(http::Error);
         Io(io::Error);
         SerdeJson(serde_json::Error);

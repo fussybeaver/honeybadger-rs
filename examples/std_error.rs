@@ -1,32 +1,27 @@
 //! Example that emits a standard error, and sends it to honeybadger
 
-extern crate futures;
-extern crate honeybadger;
-extern crate tokio;
-
-use futures::future;
 use honeybadger::{ConfigBuilder, Honeybadger};
-use tokio::prelude::Future;
 use tokio::runtime::Runtime;
 
 use std::fs::File;
 
-fn main() {
+async fn run() -> std::result::Result<(), honeybadger::errors::Error> {
     let api_token = "ffffff";
     let config = ConfigBuilder::new(api_token).build();
     let honeybadger = Honeybadger::new(config).unwrap();
 
+    match make_error() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let boxed: Box<dyn std::error::Error> = e.into();
+            Ok(honeybadger.notify(boxed, None).await?)
+        }
+    }
+}
+
+fn main() {
     let mut rt = Runtime::new().unwrap();
-    let future = future::result(make_error())
-        .or_else(|e| {
-            let boxed: Box<std::error::Error> = e.into();
-            honeybadger.notify(boxed, None)
-        })
-        .map_err(|e| println!("{:?}", e));
-
-    rt.spawn(future);
-
-    rt.shutdown_on_idle().wait().unwrap();
+    rt.block_on(run()).unwrap();
 }
 
 fn make_error() -> Result<(), std::io::Error> {
